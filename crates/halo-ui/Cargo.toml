@@ -21,7 +21,7 @@ halo-config.workspace = true
 halo-themes.workspace = true
 tracing.workspace = true
 
-eframe = { version = "0.31", optional = true, default-features = false, features = [
+eframe = { version = "0.35", optional = true, default-features = false, features = [
     "glow",
     "default_fonts",
     "wayland",
