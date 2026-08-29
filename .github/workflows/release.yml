@@ -32,11 +32,16 @@ jobs:
           - name: cli
             features: ""
             suffix: ""
-          # The HUD itself. Needs a graphical session and the X11/Wayland/GL
-          # shared libraries at run time — see the note in the release body.
-          - name: overlay
-            features: "--features overlay"
-            suffix: "-overlay"
+          # `halo overlay` (the HUD) and `halo settings` (its config GUI).
+          # `gui` implies `overlay` at zero extra dependency cost — halo-ui's
+          # Cargo.toml shows `gui = ["overlay"]` with no added `dep:` entries,
+          # both share the same eframe/egui/winit stack — so there is no
+          # reason to ship the overlay without the window that configures it.
+          # Needs a graphical session and the X11/Wayland/GL shared libraries
+          # at run time — see the note in the release body.
+          - name: desktop
+            features: "--features gui"
+            suffix: "-desktop"
 
     steps:
       - uses: actions/checkout@v4
@@ -114,7 +119,7 @@ jobs:
           | Archive | Contains | Needs |
           |---|---|---|
           | `halo-…-x86_64-linux.tar.gz` | monitoring and `halo config` | nothing |
-          | `halo-…-x86_64-linux-overlay.tar.gz` | the transparent HUD | a graphical session and the libraries below |
+          | `halo-…-x86_64-linux-desktop.tar.gz` | the above, plus `halo overlay` (the HUD) and `halo settings` (its config GUI) | a graphical session and the libraries below |
 
           Halo is **Linux only** — the overlay targets Wayland and X11, there is
           no macOS build.
@@ -122,7 +127,7 @@ jobs:
           Built on Ubuntu 22.04 (glibc 2.35), so it runs on Debian 12+ and
           Ubuntu 22.04+.
 
-          ### Run-time libraries for the overlay build
+          ### Run-time libraries for the desktop build
 
           ```bash
           sudo apt-get install -y \
