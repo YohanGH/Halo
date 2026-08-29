@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    # ubuntu-22.04 ships glibc 2.35 on purpose. Building on ubuntu-latest
+    # (24.04, glibc 2.39) produces a binary that refuses to start on Debian 12,
+    # which is glibc 2.36 — and Debian 12 is a target we care about.
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Headless build: monitoring and `halo config`, no windowing stack.
+          # Runs on a server with no graphical session and no extra libraries.
+          - name: cli
+            features: ""
+            suffix: ""
+          # The HUD itself. Needs a graphical session and the X11/Wayland/GL
+          # shared libraries at run time — see the note in the release body.
+          - name: overlay
+            features: "--features overlay"
+            suffix: "-overlay"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Same set as the `overlay` job in ci.yml: eframe/egui (glow) and
+      # global-hotkey need the X11, Wayland and GL headers to compile.
+      - name: Install windowing dependencies
+        if: matrix.features != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-dev libxkbcommon-dev libx11-dev libxcb1-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libgl1-mesa-dev libglib2.0-dev
+
+      - name: Build
+        run: cargo build --release -p halo-cli ${{ matrix.features }}
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          archive="halo-${tag}-x86_64-linux${{ matrix.suffix }}.tar.gz"
+
+          strip target/release/halo
+          install -Dm755 target/release/halo "dist/halo"
+          install -Dm644 README.md "dist/README.md"
+          install -Dm644 LICENSE  "dist/LICENSE"
+
+          tar -czf "$archive" -C dist .
+          sha256sum "$archive" > "$archive.sha256"
+
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.archive }}.sha256
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+          merge-multiple: true
+
+      # gh is preinstalled on the runner: no third-party action needed to
+      # create the release, which keeps the supply chain to what GitHub ships.
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+
+          notes=$(cat <<'EOF'
+          ## Which archive do I want?
+
+          | Archive | Contains | Needs |
+          |---|---|---|
+          | `halo-…-x86_64-linux.tar.gz` | monitoring and `halo config` | nothing |
+          | `halo-…-x86_64-linux-overlay.tar.gz` | the transparent HUD | a graphical session and the libraries below |
+
+          Halo is **Linux only** — the overlay targets Wayland and X11, there is
+          no macOS build.
+
+          Built on Ubuntu 22.04 (glibc 2.35), so it runs on Debian 12+ and
+          Ubuntu 22.04+.
+
+          ### Run-time libraries for the overlay build
+
+          ```bash
+          sudo apt-get install -y \
+            libwayland-client0 libxkbcommon0 libx11-6 libxcb1 \
+            libxcb-render0 libxcb-shape0 libxcb-xfixes0 libgl1
+          ```
+
+          ### Install
+
+          ```bash
+          tar -xzf halo-*-x86_64-linux.tar.gz
+          install -Dm755 halo ~/.local/bin/halo
+          halo --help
+          ```
+
+          Verify the download against its `.sha256` file first.
+          EOF
+          )
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" artefacts/* --clobber
+          else
+            gh release create "$tag" artefacts/* \
+              --title "$tag" \
+              --notes "$notes" \
+              --verify-tag
+          fi
