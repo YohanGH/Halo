@@ -84,7 +84,7 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.name }}
           path: |
