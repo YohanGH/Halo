@@ -27,7 +27,7 @@ eframe = { version = "0.31", optional = true, default-features = false, features
     "wayland",
     "x11",
 ] }
-global-hotkey = { version = "0.6", optional = true }
+global-hotkey = { version = "0.8", optional = true }
 # Direct handle on eframe's winit (0.30) so we can force the XWayland backend
 # via `EventLoopBuilderExtX11`; eframe does not re-export winit. Feature
 # unification keeps this in lock-step with eframe's winit build.
